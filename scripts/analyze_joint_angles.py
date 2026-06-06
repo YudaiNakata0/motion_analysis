@@ -202,13 +202,13 @@ def main() -> None:
         "--out-plot",
         type=Path,
         default=None,
-        help="Output plot path (default: result_plot/<data_dir_name>_joint_angles.png)",
+        help="Output plot path (default: result_plot_joint_angles/<data_dir_name>_joint_angles.png)",
     )
     parser.add_argument(
         "--out-csv",
         type=Path,
         default=None,
-        help="Output CSV path (default: result_csv/<data_dir_name>_joint_angles_long.csv)",
+        help="Output CSV path (default: result_csv_joint_angles/<data_dir_name>_joint_angles_long.csv)",
     )
     parser.add_argument(
         "--scalar-unit",
@@ -237,8 +237,8 @@ def main() -> None:
 
     # Build default output filenames from input folder name when not provided
     base_name = data_dir.name
-    out_plot = args.out_plot if args.out_plot is not None else Path(f"result_plot/{base_name}_joint_angles.png")
-    out_csv = args.out_csv if args.out_csv is not None else Path(f"result_csv/{base_name}_joint_angles_long.csv")
+    out_plot = args.out_plot if args.out_plot is not None else Path(f"result_plot_joint_angles/{base_name}_joint_angles.png")
+    out_csv = args.out_csv if args.out_csv is not None else Path(f"result_csv_joint_angles/{base_name}_joint_angles_long.csv")
 
     save_long_csv(out_csv, all_series)
     plot_all(
