@@ -10,7 +10,7 @@ df = pd.read_csv("learning_source/velocity.csv")
 X = df[['Body', 'Head', 'UpperBody', 'LeftArm1', 'LeftArm2', 'RightArm1', 'RightArm2', 'LeftLeg1', 'LeftLeg2', 'RightLeg1', 'RightLeg2', 'LeftHand', 'RightHand', 'LeftFoot', 'RightFoot', 'Body_translational']]
 y = df['emotion']
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
 
 clf = RandomForestClassifier(random_state=42)
 clf.fit(X_train, y_train)
