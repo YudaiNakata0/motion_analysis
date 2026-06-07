@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Random-group cross validation for `learning_source/velocity.csv`.
+"""Block-wise KFold classification for `learning_source/velocity.csv`.
 
-The CSV rows are randomly assigned to 4 groups of equal size, then grouped
-cross validation is performed by holding out one random group at a time.
+The CSV is assumed to contain 80 data rows ordered in 4 contiguous blocks:
+- block 1: rows 1-20
+- block 2: rows 21-40
+- block 3: rows 41-60
+- block 4: rows 61-80
 
-This differs from the block-wise KFold script: the train/test split is still
-4-fold, but the fold membership is randomized instead of following the source
-row order.
+Each fold uses one whole block as the test set and the remaining blocks as
+training data.
 
 Outputs:
 - fold accuracy bar plot
@@ -24,7 +26,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import KFold
 
 
 FEATURE_COLUMNS = [
@@ -46,8 +48,8 @@ FEATURE_COLUMNS = [
     "Body_translational",
 ]
 
+EXPECTED_BLOCKS = 4
 EXPECTED_ROWS = 80
-N_GROUPS = 4
 
 
 def load_data(csv_path: Path) -> pd.DataFrame:
@@ -59,26 +61,16 @@ def load_data(csv_path: Path) -> pd.DataFrame:
     return df
 
 
-def assign_random_groups(num_rows: int, n_groups: int = N_GROUPS, random_state: int = 42) -> np.ndarray:
+def assign_blocks(num_rows: int, n_blocks: int = EXPECTED_BLOCKS) -> np.ndarray:
     if num_rows != EXPECTED_ROWS:
         raise ValueError(
             f"Expected {EXPECTED_ROWS} data rows, got {num_rows}. "
-            "This script assumes the file has 80 rows."
+            "This script assumes the file is partitioned into 4 equal blocks."
         )
-    if num_rows % n_groups != 0:
-        raise ValueError(f"Row count ({num_rows}) must be divisible by n_groups ({n_groups})")
-
-    rng = np.random.default_rng(random_state)
-    indices = np.arange(num_rows)
-    rng.shuffle(indices)
-
-    groups = np.empty(num_rows, dtype=int)
-    block_size = num_rows // n_groups
-    for group_id in range(n_groups):
-        start = group_id * block_size
-        end = start + block_size
-        groups[indices[start:end]] = group_id
-    return groups
+    if num_rows % n_blocks != 0:
+        raise ValueError(f"Row count ({num_rows}) must be divisible by n_blocks ({n_blocks})")
+    block_size = num_rows // n_blocks
+    return np.repeat(np.arange(n_blocks), block_size)
 
 
 def plot_fold_accuracies(fold_scores: Sequence[float], out_path: Path, show: bool) -> None:
@@ -92,7 +84,7 @@ def plot_fold_accuracies(fold_scores: Sequence[float], out_path: Path, show: boo
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0, 1.05)
     ax.set_xticks(folds)
-    ax.set_title("Random-group 4-fold accuracy")
+    ax.set_title("Block-wise KFold accuracy")
     ax.grid(axis="y", alpha=0.3)
     ax.legend()
 
@@ -149,7 +141,7 @@ def plot_confusion_matrix(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Random-group cross validation for velocity.csv")
+    parser = argparse.ArgumentParser(description="Block-wise KFold classification for velocity.csv")
     parser.add_argument(
         "--input",
         type=Path,
@@ -160,7 +152,7 @@ def main() -> None:
         "--random-state",
         type=int,
         default=42,
-        help="Random state used to shuffle rows into groups and for the classifier",
+        help="Random state for the classifier",
     )
     parser.add_argument(
         "--n-estimators",
@@ -171,7 +163,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("result_plot_classification/classification_random_group_cv"),
+        default=Path("result_plot_classification/classification_kfold"),
         help="Directory where plots will be saved",
     )
     parser.add_argument(
@@ -185,19 +177,26 @@ def main() -> None:
     X = df[FEATURE_COLUMNS]
     y = df["emotion"].astype(str)
 
-    groups = assign_random_groups(len(df), n_groups=N_GROUPS, random_state=args.random_state)
-    gkf = GroupKFold(n_splits=N_GROUPS)
+    block_ids = assign_blocks(len(df))
+    block_numbers = np.arange(EXPECTED_BLOCKS)
+    kfold = KFold(n_splits=EXPECTED_BLOCKS, shuffle=False)
 
     fold_scores: List[float] = []
     oof_true: List[str] = []
     oof_pred: List[str] = []
 
     print(f"Loaded {len(df)} rows from {args.input}")
-    print(f"Randomly assigned rows into {N_GROUPS} groups with random_state={args.random_state}")
+    print("Using 4 folds with 20 rows per fold block")
 
-    for fold_idx, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups=groups), start=1):
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    for fold_idx, (train_block_idx, test_block_idx) in enumerate(kfold.split(block_numbers), start=1):
+        train_blocks = block_numbers[train_block_idx]
+        test_blocks = block_numbers[test_block_idx]
+
+        train_mask = np.isin(block_ids, train_blocks)
+        test_mask = np.isin(block_ids, test_blocks)
+
+        X_train, X_test = X.loc[train_mask], X.loc[test_mask]
+        y_train, y_test = y.loc[train_mask], y.loc[test_mask]
 
         clf = RandomForestClassifier(
             random_state=args.random_state,
@@ -211,9 +210,8 @@ def main() -> None:
         oof_true.extend(y_test.tolist())
         oof_pred.extend(pred.tolist())
 
-        held_out_groups = sorted(set(groups[test_idx].tolist()))
-        held_out_groups_str = ", ".join(str(g + 1) for g in held_out_groups)
-        print(f"Fold {fold_idx}: test group {held_out_groups_str} | accuracy = {score:.3f}")
+        held_out_blocks = ", ".join(str(b + 1) for b in test_blocks)
+        print(f"Fold {fold_idx}: test block {held_out_blocks} | accuracy = {score:.3f}")
 
     labels = sorted(y.unique())
     overall_accuracy = accuracy_score(oof_true, oof_pred)
